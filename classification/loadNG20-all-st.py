@@ -264,8 +264,9 @@ for categories in NG20Combinations:
 	X_train = vectorizer.fit_transform(data_train_raw.data)
 	X_test = vectorizer.transform(data_test_raw.data)
 
-	ch2 = SelectKBest(chi2, 60000)
-	X_train = ch2.fit_transform(X_train, y_train)
+	# This might be necessary for machines with less than 16GB RAM
+	#ch2 = SelectKBest(chi2, 60000)
+	#X_train = ch2.fit_transform(X_train, y_train)
 
 	X_train = X_train.toarray()
 	m,n = X_train.shape
@@ -365,15 +366,15 @@ for categories in NG20Combinations:
 	print "-------------------------------------------"
 	
 
-	#clf = BernoulliNB(alpha=0.1)
-	#clf.fit(X_train, y_train)
-	#pred = clf.predict(X_test)
-	#score = metrics.accuracy_score(y_test, pred)
-	#print "Naive Bayes (scikit): accuracy:   %0.3f" % score
-	#print "-------------------------------------------"
-	#print "-------------------------------------------"
-	#errorNB[a] = 1.0 - score
-	#diffSumEVM_NB[a] = errorEVM[a] - errorNB[a]
+	clf = BernoulliNB(alpha=0.1)
+	clf.fit(X_train, y_train)
+	pred = clf.predict(X_test)
+	score = metrics.accuracy_score(y_test, pred)
+	print "Naive Bayes (scikit): accuracy:   %0.3f" % score
+	print "-------------------------------------------"
+	print "-------------------------------------------"
+	errorNB[a] = 1.0 - score
+	diffSumEVM_NB[a] = errorEVM[a] - errorNB[a]
 
 
 	#clf = LinearSVC()
