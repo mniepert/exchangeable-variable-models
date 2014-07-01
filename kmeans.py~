@@ -1,0 +1,127 @@
+import numpy
+import scipy
+from collections import Counter
+from collections import deque
+
+def dequefilter(deck, condition):
+    for _ in xrange(len(deck)):
+        item = deck.popleft()
+        if condition(item):
+            deck.append(item)
+
+data = numpy.loadtxt(open("plants.ts.data","rb"),dtype=float,delimiter=",")
+
+m,n = data.shape
+ms = zeros(n,dtype=float)
+for i in arange(n):
+	ms[i] = average(data[:,i])
+
+A = argsort(ms)
+ms = sort(ms)
+
+# sort the array according to marginals in ascending order
+data = data[arange(data.shape[0])[:,newaxis],A]
+
+# split the data matrix in 10 parts (the exchangeable components)
+#proj = array_split(data, splitNr, axis=1)
+
+# defines the split for this particular mixture component
+peSplit = [97]
+
+# the number of splits
+splitNr = len(peSplit)+1
+
+proj = array_split(data, peSplit, axis=1)
+
+# get dimensions of the components
+mx,nx = proj[0].shape
+
+# compute the number of configurations
+prod = 1.0
+for i in arange(len(proj)):
+	prod = prod * proj[i].shape[1]
+
+#print prod
+
+#build a dictionary that stores the probs
+configs = zeros(m, dtype=str(splitNr)+'int')
+
+# go through all rows of the data table and store number of configurations
+for i in arange(m):
+	for j in arange(splitNr):
+		configs[i][j] = count_nonzero(proj[j][i,:])
+
+configs = map(tuple, configs)
+deck = deque(configs)
+dequefilter(deck, lambda x: x > 1)
+
+# map the array of all configurations to a hash table of tuples
+configs_hash = map(tuple, deck)
+
+# count the frequencies of the different configurations
+c = Counter(configs_hash)
+
+# number of configurations that have 1 or no occurence
+diff = prod - len(c)
+
+# list the 10 most common configurations with their frequencies
+#c.most_common(10)
+
+
+# the evaluation starts
+
+# load test data
+data_test = numpy.loadtxt(open("plants.test.data","rb"),dtype=float,delimiter=",")
+
+mt,nt = data_test.shape
+
+# sort the array according to marginals in ascending order
+data_test = data_test[arange(data_test.shape[0])[:,newaxis],A]
+
+# compute the log-likelihood of the model that assumes independence between all variables
+# go through the rows of the test data matrix and compute the log-likelihood of the test data
+sum_ind = 0.0
+counter = 0
+for i in arange(mt):
+	pr = 1.0
+	for j in arange(nt):
+		pr = pr*((1.0-data_test[i][j])*(1.0-ms[j])+data_test[i][j]*ms[j])
+	if pr > 0:
+		sum_ind = sum_ind + log(pr)
+	else:
+		counter += 1
+		sum_ind = sum_ind + log(1.0/m)
+
+print sum_ind / mt
+print counter
+
+# split the data matrix in splitNr parts (the exchangeable components)
+#proj_test = array_split(data_test, splitNr, axis=1)
+proj_test = array_split(data_test, peSplit, axis=1)
+
+#build a dictionary that stores the probs
+configs_test = zeros(mt, dtype=str(splitNr)+'int')
+
+# go through all rows of the data table and store number of configurations
+for i in arange(mt):
+	for j in arange(splitNr):
+		configs_test[i][j] = count_nonzero(proj_test[j][i,:])
+
+# convert array to set of tuples
+configs_test_hash = map(tuple, configs_test)
+
+# compute the log-likelihood of the test data for the partial exchangeable model
+sum = 0.0
+counter = 0
+for x in configs_test_hash:
+	if c[x] > 0:
+		sum = sum + log(float(c[x])/(float(m)+float(diff)))
+	else:
+		counter += 1
+		sum = sum + log(float(1)/(float(m)+float(diff)))
+
+print sum / mt
+print counter
+
+
+

@@ -1,0 +1,338 @@
+from operator import mul
+from sklearn import datasets
+from sklearn.datasets import fetch_20newsgroups
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.naive_bayes import BernoulliNB
+from sklearn.linear_model import LogisticRegression
+from sklearn import metrics
+from collections import Counter
+from sklearn.feature_selection import SelectKBest, chi2
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import LinearSVC
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.datasets import fetch_mldata, load_files
+from scipy.cluster.vq import vq, kmeans2, whiten
+
+# computes the binomial coefficient
+def  n_take_k(n,r):
+  
+    if r > n-r:  # for smaller intermediate values
+        r = n-r
+    return int( reduce( mul, range((n-r+1), n+1), 1) /
+      reduce( mul, range(1,r+1), 1) )
+
+
+# class representing one mixture component
+class MComponent:
+	splitNr = 2
+	splitNumbers = [0]
+	c = Counter([])
+	partition = array([])
+	smooth = 1.0
+	nk = dict()
+	numVariables = 1
+	laplace = 1.0
+
+	# part is the partition in form of an array [0, 0, 1, 0, 1, 2, 3, 1] indicating column membership on (here: 4) partitions
+	def __init__(self, data, part):
+		
+		# get dimensions of the data matrix
+		m,n = data.shape
+
+		# number of variables
+		self.numVariables = n
+
+		# compute number of blocks
+		self.splitNr = len(unique(part))
+		# copy the partition indicator array to the class variable "partition"
+		self.partition = part
+		# the integers used in part to index the blocks (e.g.: [0, 2, 3])
+		self.splitNumbers = unique(part)
+		
+		#build an array of arrays that stores the probs
+		configs = zeros((m, self.splitNr), dtype=int)
+
+		# stores the possible binomial coefficients (caching)
+		self.nk = dict()
+
+		#compute the number of all possible configurations
+		prod = 1.0
+		for i in self.splitNumbers:
+			blockSize = len(self.partition[part==i])
+			#print "blockSize: ",blockSize
+			prod = prod * (blockSize+1)
+
+		# go through all rows of the data table and store number of configurations
+		for i in arange(m):
+			for j in arange(self.splitNr):
+				#print "--------------"
+				#print data[i]
+				#print data[i][part==j]
+				configs[i][j] = count_nonzero(data[i][part==self.splitNumbers[j]])
+				#print "--------------"
+
+		# map the array of all configurations to a hash table of tuples
+		configs_hash = map(tuple, configs)
+
+		# count the frequencies of the different configurations
+		self.c = Counter(configs_hash)
+
+		# number of configurations that have no occurence in the training data
+		diff = prod - len(self.c)
+
+		#print "prod: ",prod, "; diff: ",diff
+
+		#  the normalization constant for the probabilities of the block configurations
+		self.smooth = float(sum(self.c.values()))
+
+		# perform Laplacian smoothing -> add 1 count to each possible configuration
+		# we do this only for the fully exchangeable component (splitNr == 1)
+		self.smooth += diff*self.laplace
+		for i in list(self.c):
+			self.c[i] += self.laplace
+			self.smooth += self.laplace
+
+		#print self.c
+		#print "norm: ", self.smooth
+		
+
+	# returns the probability of one particular configuration (here: conditional probability)
+	def prob(self, data_point):
+
+		# the vector representing the projection of the data point to the exchangeable blocks
+		configs_test = zeros((self.splitNr,), dtype=int)
+
+		# iterate over the number of blocks
+		for i in arange(self.splitNr):
+			configs_test[i] = count_nonzero(data_point[self.partition==self.splitNumbers[i]])
+
+		# convert the array to a tuple (required for the look-up in the Counter structure)
+		x = tuple(configs_test)
+		
+		# look up the probability of the given block configuration		
+		if self.c[x] > 0:
+			currProb = float(self.c[x])/self.smooth
+		else:
+			# if the configuration probability is zero and we are fully exchangeable, apply smoothing
+			currProb = self.laplace/self.smooth
+			
+		# normalize by the number of configuration represented by this particular block configuration
+		for i in arange(self.splitNr):
+			nvalue = len(self.partition[self.partition==self.splitNumbers[i]])
+			kvalue = configs_test[i]
+			cnk = tuple([nvalue, kvalue])
+			tst = self.nk.get(cnk, False)
+			if tst:
+				currProb = currProb / tst
+			else:
+				tst = n_take_k(nvalue, kvalue)
+				self.nk.setdefault(cnk, tst)
+				#print data_point
+				#print nvalue, "  ",kvalue
+				currProb = currProb / tst
+
+		return currProb
+
+
+class IndComponent:
+
+	comp = array([])
+	splitNumbers = [0]
+	partition = array([])
+
+	# part is the partition in form of an array [0, 0, 1, 0, 1, 2, 3, 1] indicating column membership on (here: 4) partitions
+	def __init__(self, data, part):
+
+		# the integers used in part to index the blocks (e.g.: [0, 2, 3])
+		self.splitNumbers = unique(part)
+		# copy the partition indicator array to the class variable "partition"
+		self.partition = part
+
+		self.comp = array([])
+
+		for i in self.splitNumbers:
+			mc,nc = data[:,part==i].shape
+			self.comp = append(self.comp, MComponent(data[:,part==i], zeros(nc, dtype=int) ) )
+
+		print len(self.comp)
+
+	def prob(self, data_point):
+		
+		#print data_point
+
+		# iterate over the number of blocks
+		pr = 1.0
+		for i in arange(len(self.comp)):
+			#print i
+			#print data_point[self.partition==self.splitNumbers[i]]
+			pr = pr * self.comp[i].prob(data_point[self.partition==self.splitNumbers[i]])
+
+		return pr
+
+
+	def probLog(self, data_point):
+		
+		#print data_point
+
+		# iterate over the number of blocks
+		pr = 0.0
+		for i in arange(len(self.comp)):
+			#print i
+			#print data_point[self.partition==self.splitNumbers[i]]
+			pr = pr + log(self.comp[i].prob(data_point[self.partition==self.splitNumbers[i]]))
+
+		return pr
+
+
+print "Loading polarity dataset:"
+
+diffSum = zeros(10, dtype=float)
+
+for a in arange(10):
+
+	data_raw_train = load_files("polarity/aclImdb/train/",  shuffle=True, random_state=randint(1,10000))
+	data_raw_test = load_files("polarity/aclImdb/test/",  shuffle=True, random_state=randint(1,10000))
+
+	# split a training set and a test set
+	y_train, y_test = data_raw_train.target[:5000], data_raw_test.target[:1000]
+
+	X_train = data_raw_train.data[:5000]
+	X_test =  data_raw_test.data[:1000]
+
+	vectorizer = CountVectorizer(binary=True)
+	X_train = vectorizer.fit_transform(X_train)
+	X_test = vectorizer.transform(X_test)
+
+	ch2 = SelectKBest(chi2, 500)
+	X_train = ch2.fit_transform(X_train, y_train)
+	X_test = ch2.transform(X_test)
+
+	print "X_train: ",X_train.shape
+	print "X_test: ",X_test.shape
+
+	data_train = X_train.toarray()
+	m,n = data_train.shape
+
+	print m," ",n
+
+	# compute the priors from the training data: prob(x=1)
+	prior = zeros(n,dtype=float)
+	for i in arange(n):
+		prior[i] = mean(data_train[:,i])
+
+	#print prior
+
+	dataSet = dict()
+	dataSetMarg = dict()
+
+	for i in unique(y_train):
+		dataSet[i] = data_train[y_train==i]
+
+	numOfClasses = len(unique(y_train))
+	print numOfClasses
+
+	# compute the marginals for each of the class labels
+	for i in arange(numOfClasses):
+		msTemp = zeros(n, dtype=float)
+		for j in arange(n):
+			msTemp[j] = (float(sum(dataSet[i][:,j]==1)) + 0.1) / (float(dataSet[i].shape[0]) + 0.2)
+		dataSetMarg[i] = copy(msTemp)
+	
+
+	#print ms
+	#print unique(ms0)
+	#print unique(ms1)
+	#print ms1t
+
+	comp = array([])
+
+	# compute the blocks with identical marginal probability
+	for i in arange(numOfClasses):
+		assign = zeros(n,dtype=int)
+		countUnique = 0
+		msTemp = dataSetMarg[i]
+		#print msTemp
+		for j in unique(msTemp):
+			for k in arange(n):
+				if abs(msTemp[k]-j) <= 0.0:
+					assign[k] = countUnique
+			countUnique += 1
+		#centers,assign = kmeans2(msTemp, 500)
+		#print assign
+		comp = append(comp, IndComponent(dataSet[i], assign))
+
+
+	############################################################################
+	#################### EVALUATION ############################################
+	############################################################################
+
+	# load test data
+	data_test = X_test.toarray()
+
+	#print data_test
+
+	# dimensions of test data
+	mt,nt = data_test.shape
+
+	# compute the accuracy for the exchangeable Naive Bayes model (exchangeability of variables given the class) on the test data
+	correctCounter = 0
+	for i in arange(mt):
+	
+		pr = zeros(numOfClasses, dtype=float)	
+		for j in arange(numOfClasses):
+			pr[j] = comp[j].probLog(data_test[i])
+			pr[j] = pr[j] + log(float(sum(y_train==j)) / float(len(y_train)))
+
+		if y_test[i]==argmax(pr):
+			correctCounter += 1
+
+	errorEVM = 1.0 - float(correctCounter) / float(mt)
+
+	
+	print "-------------------------------------------"
+	print "-------------------------------------------"
+	print "Exchangeable variable model: ",float(correctCounter) / float(mt)
+	print "-------------------------------------------"
+	print "-------------------------------------------"
+	clf = BernoulliNB(alpha=0.1)
+	clf.fit(X_train, y_train)
+	pred = clf.predict(X_test)
+	score = metrics.f1_score(y_test, pred)
+	print "Naive Bayes (scikit): f1-score:   %0.3f" % score
+	score = metrics.accuracy_score(y_test, pred)
+	print "Naive Bayes (scikit): accuracy:   %0.3f" % score
+	print "-------------------------------------------"
+	print "-------------------------------------------"
+
+	errorNB = 1.0 - score
+	diffSum[a] = errorEVM - errorNB
+
+	#clf = KNeighborsClassifier(n_neighbors=3)
+	#clf.fit(X_train, y_train)
+	#pred = clf.predict(X_test)
+	#score = metrics.f1_score(y_test, pred)
+	#print "kNN: f1-score:   %0.3f" % score
+	#score = metrics.accuracy_score(y_test, pred)
+	#print "kNN: accuracy:   %0.3f" % score
+	#print "-------------------------------------------"
+	#print "-------------------------------------------"
+	#clf = DecisionTreeClassifier()
+	#clf.fit(X_train.toarray(), y_train)
+	#pred = clf.predict(X_test.toarray())
+	#score = metrics.f1_score(y_test, pred)
+	#print "DT: f1-score:   %0.3f" % score
+	#score = metrics.accuracy_score(y_test, pred)
+	#print "DT: accuracy:   %0.3f" % score
+	#print "-------------------------------------------"
+	#print "-------------------------------------------"
+	clf = LinearSVC(loss='l2', penalty="l1", dual=False, tol=1e-4)
+	clf.fit(X_train, y_train)
+	pred = clf.predict(X_test)
+	score = metrics.f1_score(y_test, pred)
+	print "SVM: f1-score:   %0.3f" % score
+	score = metrics.accuracy_score(y_test, pred)
+	print "SVM: accuracy:   %0.3f" % score
+	print "-------------------------------------------"
+
+print mean(diffSum)
+print std(diffSum)/(sqrt(len(diffSum)))

@@ -1,0 +1,6 @@
+for file in *.txt; do iconv -f ascii -sc -t utf-8 "$file" -o "${file%.txt}.txt"; done
+
+awk '{print substr($0,match($0,$2)) >> ( $1 ".txt" )}' file
+
+awk '{print substr($0,match($0,$2)) >> ( "file_" sprintf("%03d",++c) ".txt" )}' file
+

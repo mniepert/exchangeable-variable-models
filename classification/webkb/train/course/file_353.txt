@@ -1,0 +1,1 @@
+process system focus concept practic modern process system distribut set describ architectur system monitor recoveri manag lock manag log manag lock manag discuss principl undo log write ahead log rule forc log commit rule describ compens log record checkpoint restart recoveri procedur phase commit lock tabl granular lock phase lock prereq
